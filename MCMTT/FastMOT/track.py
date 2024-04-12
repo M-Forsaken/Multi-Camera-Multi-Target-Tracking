@@ -4,9 +4,10 @@ import numba as nb
 
 from model_source.label import get_label_name
 from utils.distance import cdist, cosine
-from utils.numba_func import apply_along_axis, normalize_vec
 from utils.rect import get_center
+from utils.numba_func import apply_along_axis, normalize_vec
 
+ID_count = 0
 
 class ClusterFeature:
     def __init__(self, num_clusters, metric):
@@ -25,7 +26,8 @@ class ClusterFeature:
     def update(self, embedding):
         if self._next_idx < self.num_clusters:
             if self.clusters is None:
-                self.clusters = np.empty((self.num_clusters, len(embedding)), embedding.dtype)
+                self.clusters = np.empty(
+                    (self.num_clusters, len(embedding)), embedding.dtype)
                 self.cluster_sizes = np.zeros(self.num_clusters, int)
             self.clusters[self._next_idx] = embedding
             self.cluster_sizes[self._next_idx] += 1
@@ -33,7 +35,8 @@ class ClusterFeature:
         else:
             nearest_idx = self._get_nearest_cluster(self.clusters, embedding)
             self.cluster_sizes[nearest_idx] += 1
-            self._seq_kmeans(self.clusters, self.cluster_sizes, embedding, nearest_idx)
+            self._seq_kmeans(self.clusters, self.cluster_sizes,
+                             embedding, nearest_idx)
 
     def distance(self, embeddings):
         if self.clusters is None:
@@ -41,18 +44,9 @@ class ClusterFeature:
         clusters = normalize_vec(self.clusters[:self._next_idx])
         return apply_along_axis(np.min, cdist(clusters, embeddings, self.metric), axis=0)
 
-    def merge(self, features, other, other_features):
-        if len(features) > len(other_features):
-            for feature in other_features:
-                if feature is not None:
-                    self.update(feature)
-        else:
-            for feature in features:
-                if feature is not None:
-                    other.update(feature)
-            self.clusters = other.clusters.copy()
-            self.clusters_sizes = other.cluster_sizes.copy()
-            self._next_idx = other._next_idx
+    def merge(self, other):
+        for feature in other.clusters:
+            self.update(feature)
 
     @staticmethod
     @nb.njit(fastmath=True, cache=True)
@@ -64,29 +58,6 @@ class ClusterFeature:
     def _seq_kmeans(clusters, cluster_sizes, embedding, idx):
         div_size = 1. / cluster_sizes[idx]
         clusters[idx] += (embedding - clusters[idx]) * div_size
-
-
-class SmoothFeature:
-    def __init__(self, learning_rate):
-        self.lr = learning_rate
-        self.smooth = None
-
-    def __call__(self):
-        return self.smooth
-
-    def update(self, embedding):
-        if self.smooth is None:
-            self.smooth = embedding.copy()
-        else:
-            self._rolling(self.smooth, embedding, self.lr)
-
-    @staticmethod
-    @nb.njit(fastmath=True, cache=True)
-    def _rolling(smooth, embedding, lr):
-        smooth[:] = (1. - lr) * smooth + lr * embedding
-        norm_factor = 1. / np.linalg.norm(smooth)
-        smooth *= norm_factor
-
 
 class AverageFeature:
     def __init__(self):
@@ -125,24 +96,25 @@ class AverageFeature:
         norm_factor = 1. / np.linalg.norm(avg)
         avg *= norm_factor
 
-
 class Track:
-    _count = 0
-
-    def __init__(self, frame_id, tlbr, state, label, confirm_hits=1, buffer_size=30):
+    def __init__(self, cam_id, frame_id, tlbr, estimator_state, label, metric, confirm_hits=1, buffer_size=30, num_clusters=4):
         self.trk_id = self.next_id()
-        self.start_frame = frame_id
-        self.frame_ids = deque([frame_id], maxlen=buffer_size)
+        self.cam_id = cam_id
+        self.start_time = frame_id
+        self.end_time = frame_id
         self.bboxes = deque([tlbr], maxlen=buffer_size)
         self.confirm_hits = confirm_hits
-        self.state = state
+        self.estimator_state = estimator_state
         self.label = label
 
         self.age = 0
         self.hits = 0
         self.avg_feat = AverageFeature()
-        self.last_feat = None
+        self.clust_feat = ClusterFeature(num_clusters,metric)
+        self.trajectory = cam_id  # current camera ID
+        self.cross_camera_track = False
 
+        self.last_merge_dis = 1.
         self.inlier_ratio = 1.
         self.keypoints = np.empty((0, 2), np.float32)
         self.prev_keypoints = np.empty((0, 2), np.float32)
@@ -155,7 +127,7 @@ class Track:
         return self.__str__()
 
     def __len__(self):
-        return self.end_frame - self.start_frame
+        return self.end_time - self.start_time
 
     def __lt__(self, other):
         # ordered by approximate distance to the image plane, closer is greater
@@ -166,10 +138,6 @@ class Track:
         return self.bboxes[-1]
 
     @property
-    def end_frame(self):
-        return self.frame_ids[-1]
-
-    @property
     def active(self):
         return self.age < 2
 
@@ -177,27 +145,27 @@ class Track:
     def confirmed(self):
         return self.hits >= self.confirm_hits
 
-    def update(self, tlbr, state):
+    def update(self, tlbr, estimator_state):
         self.bboxes.append(tlbr)
-        self.state = state
+        self.estimator_state = estimator_state
 
-    def add_detection(self, frame_id, tlbr, state, embedding, is_valid=True):
-        self.frame_ids.append(frame_id)
+    def add_detection(self, frame_id, tlbr, estimator_state, embedding, is_valid=True):
+        self.end_time = frame_id
         self.bboxes.append(tlbr)
-        self.state = state
-        if is_valid:
-            self.last_feat = embedding
-            self.avg_feat.update(embedding)
+        self.estimator_state = estimator_state
+        if embedding is not None:
+            if is_valid:
+                self.avg_feat.update(embedding)
+                self.clust_feat.update(embedding)
         self.age = 0
         self.hits += 1
 
     def reinstate(self, frame_id, tlbr, state, embedding):
-        self.start_frame = frame_id
-        self.frame_ids.append(frame_id)
+        self.start_time = frame_id
         self.bboxes.append(tlbr)
-        self.state = state
-        self.last_feat = embedding
+        self.estimator_state = state
         self.avg_feat.update(embedding)
+        self.clust_feat.update(embedding)
         self.age = 0
         self.keypoints = np.empty((0, 2), np.float32)
         self.prev_keypoints = np.empty((0, 2), np.float32)
@@ -206,20 +174,20 @@ class Track:
         self.age += 1
 
     def merge_continuation(self, other):
-        self.frame_ids.extend(other.frame_ids)
+        self.end_time = other.end_time
         self.bboxes.extend(other.bboxes)
-        self.state = other.state
+        self.estimator_state = other.estimator_state
         self.age = other.age
         self.hits += other.hits
 
         self.keypoints = other.keypoints
         self.prev_keypoints = other.prev_keypoints
 
-        if other.last_feat is not None:
-            self.last_feat = other.last_feat
         self.avg_feat.merge(other.avg_feat)
+        self.clust_feat.merge(other.clust_feat)
 
     @staticmethod
     def next_id():
-        Track._count += 1
-        return Track._count
+        global ID_count
+        ID_count += 1
+        return ID_count

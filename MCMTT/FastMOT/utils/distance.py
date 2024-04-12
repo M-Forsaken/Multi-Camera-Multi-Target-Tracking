@@ -62,31 +62,6 @@ def euclidean(XA, XB, empty_mask=None, filler=1., symmetric=False):
                 Y[i, j] = np.sqrt(norm)
     return Y
 
-
-@nb.njit(parallel=True, fastmath=True, cache=True, inline='always')
-def cosine(XA, XB, empty_mask=None, filler=1., symmetric=False):
-    """Numba implementation of Scipy's cosine"""
-    Y = np.empty((XA.shape[0], XB.shape[0]))
-    for i in nb.prange(XA.shape[0]):
-        for j in range(XB.shape[0]):
-            if symmetric and i >= j:
-                Y[i, j] = INF_DIST
-            elif empty_mask is not None and empty_mask[i, j]:
-                Y[i, j] = filler
-            else:
-                dot    = 0.
-                a_norm = 0.
-                b_norm = 0.
-                for k in range(XA.shape[1]):
-                    dot    += XA[i, k] * XB[j, k]
-                    a_norm += XA[i, k] * XA[i, k]
-                    b_norm += XB[j, k] * XB[j, k]
-                a_norm = np.sqrt(a_norm)
-                b_norm = np.sqrt(b_norm)
-                Y[i, j] = 1. - dot / (a_norm * b_norm)
-    return Y
-
-
 @nb.njit(parallel=False, fastmath=True, cache=True)
 def iou_dist(tlbrs1, tlbrs2):
     """Computes pairwise IoU distance."""
@@ -159,4 +134,28 @@ def diou_dist(tlbrs1, tlbrs2):
             d = (x2 - x1)**2 + (y2 - y1)**2
             diou = iou - (d / c)**0.6
             Y[i, j] = (1. - diou) * 0.5
+    return Y
+
+
+@nb.njit(parallel=True, fastmath=True, cache=True, inline='always')
+def cosine(XA, XB, empty_mask=None, filler=1., symmetric=False):
+    """Numba implementation of Scipy's cosine"""
+    Y = np.empty((XA.shape[0], XB.shape[0]))
+    for i in nb.prange(XA.shape[0]):
+        for j in range(XB.shape[0]):
+            if symmetric and i >= j:
+                Y[i, j] = INF_DIST
+            elif empty_mask is not None and empty_mask[i, j]:
+                Y[i, j] = filler
+            else:
+                dot = 0.
+                a_norm = 0.
+                b_norm = 0.
+                for k in range(XA.shape[1]):
+                    dot += XA[i, k] * XB[j, k]
+                    a_norm += XA[i, k] * XA[i, k]
+                    b_norm += XB[j, k] * XB[j, k]
+                a_norm = np.sqrt(a_norm)
+                b_norm = np.sqrt(b_norm)
+                Y[i, j] = 1. - dot / (a_norm * b_norm)
     return Y

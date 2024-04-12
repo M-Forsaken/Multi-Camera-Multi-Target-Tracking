@@ -2,7 +2,7 @@ import numpy as np
 import numba as nb
 
 
-@nb.njit(fastmath=True, cache=True)
+# @nb.njit(fastmath=True, cache=True)
 def apply_along_axis(func1d, mat, axis):
     """Numba utility to apply reduction to a given axis."""
     assert mat.ndim == 2
@@ -10,7 +10,7 @@ def apply_along_axis(func1d, mat, axis):
     if axis == 0:
         result = np.empty(mat.shape[1], mat.dtype)
         for i in range(len(result)):
-            result[i, :] = func1d(mat[:, i])
+            result[i] = func1d(mat[:, i])
     else:
         result = np.empty(mat.shape[0], mat.dtype)
         for i in range(len(result)):
@@ -86,3 +86,4 @@ def perspective_transform(pts, m):
     pts = m @ pts
     pts = pts / pts[-1]
     return pts[:2].T
+

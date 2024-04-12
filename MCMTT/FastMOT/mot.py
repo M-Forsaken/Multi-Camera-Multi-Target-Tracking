@@ -1,6 +1,4 @@
 from types import SimpleNamespace
-from enum import Enum
-import logging
 import numpy as np
 import numba as nb
 import cv2
@@ -11,12 +9,9 @@ from tracker import MultiTracker
 from utils.visualization import Visualizer
 from utils.numba_func import bisect_right
 
-
-LOGGER = logging.getLogger(__name__)
-
 class MOT:
-    def __init__(self, size,
-                 detector_frame_skip=1,
+    def __init__(self, size, cam_id,
+                 detector_frame_skip=5,
                  class_ids=(0,),
                  yolo_detector_cfg=None,
                  feature_extractor_cfgs=None,
@@ -53,6 +48,7 @@ class MOT:
             Draw visualizations.
         """
         self.size = size
+        self.cam_id = cam_id
         self.detector_type = 1
         assert detector_frame_skip >= 1
         self.detector_frame_skip = detector_frame_skip
@@ -66,12 +62,10 @@ class MOT:
             tracker_cfg = SimpleNamespace()
         if visualizer_cfg is None:
             visualizer_cfg = SimpleNamespace()
-        if len(feature_extractor_cfgs) != len(class_ids):
-            raise ValueError('Number of feature extractors must match length of class IDs')
 
         print('Loading feature extractor models...')
-        self.extractors = [FeatureExtractor(**vars(cfg)) for cfg in feature_extractor_cfgs]
-        self.tracker = MultiTracker(self.size, self.extractors[0].metric, **vars(tracker_cfg))
+        self.extractor = FeatureExtractor(**vars(feature_extractor_cfgs))
+        self.tracker = MultiTracker(self.size,self.cam_id, self.extractor.metric, **vars(tracker_cfg))
         self.visualizer = Visualizer(**vars(visualizer_cfg))
         self.frame_count = 0
 
@@ -114,13 +108,11 @@ class MOT:
             detections = Detection(frame)
             cls_bboxes = self._split_bboxes_by_cls(detections.tlbr, detections.label,
                                                         self.class_ids)
-            for extractor, bboxes in zip(self.extractors, cls_bboxes):
-                extractor.extract_async(frame, bboxes)
+
+            for bboxes in cls_bboxes:
+                self.extractor.extract_async(frame, bboxes)
             self.tracker.apply_kalman()
-            embeddings = []
-            for extractor in self.extractors:
-                embeddings.append(extractor.postprocess())
-            embeddings = np.concatenate(embeddings) if len(embeddings) > 1 else embeddings[0]
+            embeddings = self.extractor.postprocess()
             self.tracker.update(self.frame_count, detections, embeddings)
         else:
             self.tracker.track(frame)
@@ -141,7 +133,6 @@ class MOT:
 
     def _draw(self, frame, detections):
         visible_tracks = list(self.visible_tracks())
-        self.visualizer.render(frame, visible_tracks, detections, self.tracker.klt_bboxes.values(),
-                               self.tracker.flow.prev_bg_keypoints, self.tracker.flow.bg_keypoints)
+        self.visualizer.render(frame, visible_tracks, detections, self.tracker.klt_bboxes.values())
         cv2.putText(frame, f'visible: {len(visible_tracks)}', (30, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, 0, 2, cv2.LINE_AA)

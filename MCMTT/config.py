@@ -17,10 +17,10 @@ clock = pygame.time.Clock()
 # Window arguments
 Width = 1280
 Height = 720
-FPS = 120
+FPS = 30
 
 # Model arguments
-model = YOLO(cwd + "/model/yolov8n.engine")
+model = YOLO(cwd + "/models/yolov8n.engine",task="detect")
 
 # Camera arguments
 left_cap = cv2.VideoCapture(1)
@@ -35,7 +35,7 @@ Tantheta = 0.61  # tangent of half of Angle of view
 # Tracker arguments
 tag = "person"
 trail = False
-confidence = 0.3
+confidence = 0.5
 sort_max_age = 15
 sort_min_hits = 3
 sort_iou_thresh = 0.5

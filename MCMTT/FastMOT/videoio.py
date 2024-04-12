@@ -27,7 +27,7 @@ class VideoIO:
                  resolution=(1920, 1080),
                  frame_rate=60,
                  buffer_size=10,
-                 proc_fps=60):
+                 proc_fps=30):
         """Class for video capturing and output saving.
         Encoding, decoding, and scaling can be accelerated using the GStreamer backend.
 

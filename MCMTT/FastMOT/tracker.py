@@ -1,7 +1,6 @@
 from types import SimpleNamespace
-from collections import OrderedDict
+from collections import OrderedDict,namedtuple
 import itertools
-import logging
 import numpy as np
 
 from track import Track
@@ -9,14 +8,13 @@ from flow import Flow
 from kalman_filter import MeasType, KalmanFilter
 from utils.distance import Metric, cdist, iou_dist
 from utils.matching import linear_assignment, greedy_match, fuse_motion, gate_cost
-from utils.rect import as_tlbr, to_tlbr, ios, bbox_ious, find_occluded
+from utils.rect import as_tlbr, to_tlbr, ios, find_occluded
 
-
-LOGGER = logging.getLogger(__name__)
+THE_BIGGEST_DISTANCE = 2.
 
 
 class MultiTracker:
-    def __init__(self, size, metric,
+    def __init__(self, size, cam_id, metric,
                  max_age=6,
                  age_penalty=2,
                  motion_weight=0.2,
@@ -68,6 +66,7 @@ class MultiTracker:
             Flow configuration.
         """
         self.size = size
+        self.cam_id = cam_id
         self.metric = Metric[metric.upper()]
         assert max_age >= 1
         self.max_age = max_age
@@ -130,10 +129,10 @@ class MultiTracker:
         self.tracks.clear()
         self.flow.init(frame)
         for det in detections:
-            state = self.kf.create(det.tlbr)
-            new_trk = Track(0, det.tlbr, state, det.label, self.confirm_hits)
+            estimator_state = self.kf.create(det.tlbr)
+            new_trk = Track(self.cam_id ,0, det.tlbr, estimator_state, det.label, self.metric, self.confirm_hits)
             self.tracks[new_trk.trk_id] = new_trk
-            LOGGER.debug(f"{'Detected:':<14}{new_trk}")
+            # LOGGER.debug(f"{'Detected:':<14}{new_trk}")
 
     def track(self, frame):
         """Convenience function that combines `compute_flow` and `apply_kalman`.
@@ -154,7 +153,8 @@ class MultiTracker:
         frame : ndarray
             The next frame.
         """
-        active_tracks = [track for track in self.tracks.values() if track.active]
+        active_tracks = [
+            track for track in self.tracks.values() if track.active]
         self.klt_bboxes = self.flow.predict(frame, active_tracks)
 
     def apply_kalman(self):
@@ -162,20 +162,22 @@ class MultiTracker:
         The function should be called after `compute_flow`.
         """
         for trk_id, track in list(self.tracks.items()):
-            mean, cov = track.state
+            mean, cov = track.estimator_state
             mean, cov = self.kf.predict(mean, cov)
             if trk_id in self.klt_bboxes:
                 klt_tlbr = self.klt_bboxes[trk_id]
                 # give large KLT uncertainty for occluded tracks
                 # usually these with large age and low inlier ratio
-                std_multiplier = max(self.age_penalty * track.age, 1) / track.inlier_ratio
-                mean, cov = self.kf.update(mean, cov, klt_tlbr, MeasType.FLOW, std_multiplier)
+                std_multiplier = max(self.age_penalty *
+                                     track.age, 1) / track.inlier_ratio
+                mean, cov = self.kf.update(
+                    mean, cov, klt_tlbr, MeasType.FLOW, std_multiplier)
             next_tlbr = as_tlbr(mean[:4])
             track.update(next_tlbr, (mean, cov))
             if ios(next_tlbr, self.frame_rect) < 0.5:
                 if track.confirmed:
                     pass
-                    #print(f"{'Out:':<14}{track}")
+                    # print(f"{'Out:':<14}{track}")
                 self._mark_lost(trk_id)
 
     def update(self, frame_id, detections, embeddings):
@@ -190,7 +192,8 @@ class MultiTracker:
         embeddings : ndarray
             NxM matrix of N extracted embeddings with dimension M.
         """
-        occluded_det_mask = find_occluded(detections.tlbr, self.occlusion_thresh)
+        occluded_det_mask = find_occluded(
+            detections.tlbr, self.occlusion_thresh)
         confirmed_by_depth, unconfirmed = self._group_tracks_by_depth()
 
         # association with motion and embeddings, tracks with small age are prioritized
@@ -199,36 +202,44 @@ class MultiTracker:
         u_det_ids = list(range(len(detections)))
         for depth, trk_ids in enumerate(confirmed_by_depth):
             if len(u_det_ids) == 0:
-                u_trk_ids1.extend(itertools.chain.from_iterable(confirmed_by_depth[depth:]))
+                u_trk_ids1.extend(itertools.chain.from_iterable(
+                    confirmed_by_depth[depth:]))
                 break
             if len(trk_ids) == 0:
                 continue
             u_detections, u_embeddings = detections[u_det_ids], embeddings[u_det_ids]
-            u_occluded_dmask = occluded_det_mask[u_det_ids]
-            cost = self._matching_cost(trk_ids, u_detections, u_embeddings, u_occluded_dmask)
-            matches, u_trk_ids, u_det_ids = linear_assignment(cost, trk_ids, u_det_ids)
+            cost = self._matching_cost(
+                trk_ids, u_detections, u_embeddings)
+            matches, u_trk_ids, u_det_ids = linear_assignment(
+                cost, trk_ids, u_det_ids)
             matches1 += matches
             u_trk_ids1 += u_trk_ids
 
         # 2nd association with IoU
         active = [trk_id for trk_id in u_trk_ids1 if self.tracks[trk_id].active]
-        u_trk_ids1 = [trk_id for trk_id in u_trk_ids1 if not self.tracks[trk_id].active]
+        u_trk_ids1 = [
+            trk_id for trk_id in u_trk_ids1 if not self.tracks[trk_id].active]
         u_detections = detections[u_det_ids]
         cost = self._iou_cost(active, u_detections)
-        matches2, u_trk_ids2, u_det_ids = linear_assignment(cost, active, u_det_ids)
+        matches2, u_trk_ids2, u_det_ids = linear_assignment(
+            cost, active, u_det_ids)
 
         # 3rd association with unconfirmed tracks
         u_detections = detections[u_det_ids]
         cost = self._iou_cost(unconfirmed, u_detections)
-        matches3, u_trk_ids3, u_det_ids = linear_assignment(cost, unconfirmed, u_det_ids)
+        matches3, u_trk_ids3, u_det_ids = linear_assignment(
+            cost, unconfirmed, u_det_ids)
 
         # reID with track history
         hist_ids = [trk_id for trk_id, track in self.hist_tracks.items()
                     if track.avg_feat.count >= 2]
 
-        u_det_ids = [det_id for det_id in u_det_ids if detections[det_id].conf >= self.conf_thresh]
-        valid_u_det_ids = [det_id for det_id in u_det_ids if not occluded_det_mask[det_id]]
-        invalid_u_det_ids = [det_id for det_id in u_det_ids if occluded_det_mask[det_id]]
+        u_det_ids = [
+            det_id for det_id in u_det_ids if detections[det_id].conf >= self.conf_thresh]
+        valid_u_det_ids = [
+            det_id for det_id in u_det_ids if not occluded_det_mask[det_id]]
+        invalid_u_det_ids = [
+            det_id for det_id in u_det_ids if occluded_det_mask[det_id]]
 
         u_detections, u_embeddings = detections[valid_u_det_ids], embeddings[valid_u_det_ids]
         cost = self._reid_cost(hist_ids, u_detections, u_embeddings)
@@ -240,34 +251,37 @@ class MultiTracker:
         u_trk_ids = itertools.chain(u_trk_ids1, u_trk_ids2, u_trk_ids3)
 
         # rectify matches that may cause duplicate tracks
-        matches, u_trk_ids = self._rectify_matches(matches, u_trk_ids, detections)
+        matches, u_trk_ids = self._rectify_matches(
+            matches, u_trk_ids, detections)
 
         # reinstate matched tracks
         for trk_id, det_id in reid_matches:
             track = self.hist_tracks.pop(trk_id)
             det = detections[det_id]
-            #print(f"{'Reidentified:':<14}{track}")
-            state = self.kf.create(det.tlbr)
-            track.reinstate(frame_id, det.tlbr, state, embeddings[det_id])
+            print(f"{'Reidentified:':<14}{track}")
+            estimator_state = self.kf.create(det.tlbr)
+            track.reinstate(frame_id, det.tlbr, estimator_state, embeddings[det_id])
             self.tracks[trk_id] = track
 
         # update matched tracks
         for trk_id, det_id in matches:
             track = self.tracks[trk_id]
             det = detections[det_id]
-            mean, cov = self.kf.update(*track.state, det.tlbr, MeasType.DETECTOR)
+            mean, cov = self.kf.update(
+                *track.estimator_state, det.tlbr, MeasType.DETECTOR)
             next_tlbr = as_tlbr(mean[:4])
             is_valid = not occluded_det_mask[det_id]
             if track.hits == self.confirm_hits - 1:
                 pass
-                #print(f"{'Found:':<14}{track}")
+                # print(f"{'Found:':<14}{track}")
             if ios(next_tlbr, self.frame_rect) < 0.5:
                 is_valid = False
                 if track.confirmed:
                     pass
-                    #print(f"{'Out:':<14}{track}")
+                    # print(f"{'Out:':<14}{track}")
                 self._mark_lost(trk_id)
-            track.add_detection(frame_id, next_tlbr, (mean, cov), embeddings[det_id], is_valid)
+            track.add_detection(frame_id, next_tlbr,
+                                (mean, cov), embeddings[det_id], is_valid)
 
         # clean up lost tracks
         for trk_id in u_trk_ids:
@@ -278,18 +292,19 @@ class MultiTracker:
                 del self.tracks[trk_id]
                 continue
             if track.age > self.max_age:
-                #print(f"{'Lost:':<14}{track}")
+                # print(f"{'Lost:':<14}{track}")
                 self._mark_lost(trk_id)
 
         u_det_ids = itertools.chain(invalid_u_det_ids, reid_u_det_ids)
         # start new tracks
         for det_id in u_det_ids:
             det = detections[det_id]
-            state = self.kf.create(det.tlbr)
-            new_trk = Track(frame_id, det.tlbr, state, det.label, self.confirm_hits)
+            estimator_state = self.kf.create(det.tlbr)
+            new_trk = Track(self.cam_id,frame_id, det.tlbr, estimator_state,
+                            det.label, self.metric,  self.confirm_hits)
             self.tracks[new_trk.trk_id] = new_trk
             # LOGGER.debug(f"{'Detected:':<14}{new_trk}")
-
+    
     def _mark_lost(self, trk_id):
         track = self.tracks.pop(trk_id)
         if track.confirmed:
@@ -309,35 +324,28 @@ class MultiTracker:
                 unconfirmed.append(trk_id)
         return confirmed_by_depth, unconfirmed
 
-    def _matching_cost(self, trk_ids, detections, embeddings, occluded_dmask):
+    def _matching_cost(self, trk_ids, detections, embeddings):
         n_trk, n_det = len(trk_ids), len(detections)
         if n_trk == 0 or n_det == 0:
             return np.empty((n_trk, n_det))
 
-        features = np.empty((n_trk, embeddings.shape[1]))
-        invalid_fmask = np.zeros(n_trk, np.bool_)
+        # calculate cost based on average and clustered features
+        cost = np.zeros((n_trk, n_det), dtype=np.float32)
         for i, trk_id in enumerate(trk_ids):
             track = self.tracks[trk_id]
-            if track.avg_feat.is_valid():
-                features[i, :] = track.avg_feat()
-            else:
-                invalid_fmask[i] = True
-
-        empty_mask = invalid_fmask[:, None] | occluded_dmask
-        fill_val = min(self.max_assoc_cost + 0.1, 1.)
-        cost = cdist(features, embeddings, self.metric, empty_mask, fill_val)
+            cost[i:,] = track.clust_feat.distance(embeddings)
 
         # fuse motion information
         for row, trk_id in enumerate(trk_ids):
             track = self.tracks[trk_id]
-            m_dist = self.kf.motion_distance(*track.state, detections.tlbr)
+            m_dist = self.kf.motion_distance(*track.estimator_state, detections.tlbr)
             fuse_motion(cost[row], m_dist, self.motion_weight)
 
         # make sure associated pair has the same class label
         t_labels = np.fromiter((self.tracks[trk_id].label for trk_id in trk_ids), int, n_trk)
         gate_cost(cost, t_labels, detections.label, self.max_assoc_cost)
         return cost
-
+    
     def _iou_cost(self, trk_ids, detections):
         n_trk, n_det = len(trk_ids), len(detections)
         if n_trk == 0 or n_det == 0:
@@ -354,10 +362,12 @@ class MultiTracker:
         n_hist, n_det = len(hist_ids), len(detections)
         if n_hist == 0 or n_det == 0:
             return np.empty((n_hist, n_det))
-
-        features = np.concatenate([self.hist_tracks[trk_id].avg_feat()
-                                   for trk_id in hist_ids]).reshape(n_hist, -1)
-        cost = cdist(features, embeddings, self.metric)
+        
+        # calculate cost based on average and clustered features
+        cost = np.zeros((n_hist, n_det), dtype=np.float32)
+        for i, trk_id in enumerate(hist_ids):
+            track = self.hist_tracks[trk_id]
+            cost[i:,] = track.clust_feat.distance(embeddings)
 
         t_labels = np.fromiter((t.label for t in self.hist_tracks.values()), int, n_hist)
         gate_cost(cost, t_labels, detections.label)
@@ -385,36 +395,23 @@ class MultiTracker:
         for u_trk_id, col in dup_matches:
             m_trk_id, det_id = m_inactive[col], det_ids[col]
             t_u_active, t_m_inactive = self.tracks[u_trk_id], self.tracks[m_trk_id]
-            if t_m_inactive.end_frame < t_u_active.start_frame:
-                # LOGGER.debug(f"{'Merged:':<14}{u_trk_id} -> {m_trk_id}")
+            if t_m_inactive.end_time < t_u_active.start_time:
                 t_m_inactive.merge_continuation(t_u_active)
                 u_trk_ids.remove(u_trk_id)
                 del self.tracks[u_trk_id]
             else:
-                # LOGGER.debug(f"{'Duplicate:':<14}{m_trk_id} -> {u_trk_id}")
                 u_trk_ids.remove(u_trk_id)
                 u_trk_ids.add(m_trk_id)
                 matches.remove((m_trk_id, det_id))
                 matches.add((u_trk_id, det_id))
         return matches, u_trk_ids
-
-    def _remove_duplicate(self, trk_ids1, trk_ids2):
-        if len(trk_ids1) == 0 or len(trk_ids2) == 0:
-            return
-
-        bboxes1 = np.array([self.tracks[trk_id].tlbr for trk_id in trk_ids1])
-        bboxes2 = np.array([self.tracks[trk_id].tlbr for trk_id in trk_ids2])
-
-        ious = bbox_ious(bboxes1, bboxes2)
-        idx = np.where(ious >= self.duplicate_thresh)
-        dup_ids = set()
-        for row, col in zip(*idx):
-            trk_id1, trk_id2 = trk_ids1[row], trk_ids2[col]
-            track1, track2 = self.tracks[trk_id1], self.tracks[trk_id2]
-            if len(track1) > len(track2):
-                dup_ids.add(trk_id2)
-            else:
-                dup_ids.add(trk_id1)
-        for trk_id in dup_ids:
-            # LOGGER.debug(f"{'Duplicate:':<14}{self.tracks[trk_id]}")
-            del self.tracks[trk_id]
+    # def get_tracked_objects(self,frame_id):
+    #     objs = []
+    #     for track in self.tracks:
+    #         if track.end_time == frame_id - 1:
+    #             objs.append(TrackedObj(track.get_last_box(),
+    #                                    f'{track.cam_id}-{track.id}',
+    #                                    len(track) > self.time_window
+    #                                    )
+    #                         )
+    #     return objs

@@ -92,7 +92,8 @@ class Flow:
         if opt_flow_params is None:
             self.opt_flow_params.update(vars(opt_flow_params))
 
-        self.bg_feat_detector = cv2.FastFeatureDetector_create(threshold=self.bg_feat_thresh)
+        self.bg_feat_detector = cv2.FastFeatureDetector_create(
+            threshold=self.bg_feat_thresh)
 
         # background feature points for visualization
         self.bg_keypoints = None
@@ -151,7 +152,8 @@ class Flow:
         """
         # preprocess frame
         cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY, dst=self.frame_gray)
-        cv2.resize(self.frame_gray, self.frame_small.shape[::-1], dst=self.frame_small)
+        cv2.resize(self.frame_gray,
+                   self.frame_small.shape[::-1], dst=self.frame_small)
 
         # order tracks from closest to farthest
         tracks.sort(reverse=True)
@@ -163,18 +165,21 @@ class Flow:
             inside_tlbr = intersection(track.tlbr, self.frame_rect)
             target_mask = crop(self.fg_mask, inside_tlbr)
             target_area = mask_area(target_mask)
-            keypoints = self._rect_filter(track.keypoints, inside_tlbr, self.fg_mask)
+            keypoints = self._rect_filter(
+                track.keypoints, inside_tlbr, self.fg_mask)
             # only detect new keypoints when too few are propagated
             if len(keypoints) < self.feat_density * target_area:
                 img = crop(self.prev_frame_gray, inside_tlbr)
-                feature_dist = self._estimate_feature_dist(target_area, self.feat_dist_factor)
+                feature_dist = self._estimate_feature_dist(
+                    target_area, self.feat_dist_factor)
                 keypoints = cv2.goodFeaturesToTrack(img, mask=target_mask,
                                                     minDistance=feature_dist,
                                                     **self.obj_feat_params)
                 if keypoints is None:
                     keypoints = np.empty((0, 2), np.float32)
                 else:
-                    keypoints = self._ellipse_filter(keypoints, track.tlbr, inside_tlbr[:2])
+                    keypoints = self._ellipse_filter(
+                        keypoints, track.tlbr, inside_tlbr[:2])
             # batch keypoints
             all_prev_pts.append(keypoints)
             # zero out target in foreground mask
@@ -184,29 +189,32 @@ class Flow:
         target_begins = itertools.chain([0], target_ends[:-1])
 
         # detect background feature points
-        cv2.resize(self.prev_frame_gray, self.prev_frame_bg.shape[::-1], dst=self.prev_frame_bg)
+        cv2.resize(self.prev_frame_gray,
+                   self.prev_frame_bg.shape[::-1], dst=self.prev_frame_bg)
         cv2.resize(self.fg_mask, self.bg_mask_small.shape[::-1], dst=self.bg_mask_small,
                    interpolation=cv2.INTER_NEAREST)
-        keypoints = self.bg_feat_detector.detect(self.prev_frame_bg, mask=self.bg_mask_small)
+        keypoints = self.bg_feat_detector.detect(
+            self.prev_frame_bg, mask=self.bg_mask_small)
         if len(keypoints) == 0:
             self.bg_keypoints = np.empty((0, 2), np.float32)
             self.prev_frame_gray, self.frame_gray = self.frame_gray, self.prev_frame_gray
             self.prev_frame_small, self.frame_small = self.frame_small, self.prev_frame_small
-            LOGGER.warning('Camera motion estimation failed')
-            return {}, None
+            # LOGGER.warning('Camera motion estimation failed')
+            return {}
         keypoints = np.float32([kp.pt for kp in keypoints])
         keypoints = self._unscale_pts(keypoints, self.bg_feat_scale_factor)
-        bg_begin = target_ends[-1]
         all_prev_pts.append(keypoints)
 
         # match features using optical flow
         all_prev_pts = np.concatenate(all_prev_pts)
-        scaled_prev_pts = self._scale_pts(all_prev_pts, self.opt_flow_scale_factor)
+        scaled_prev_pts = self._scale_pts(
+            all_prev_pts, self.opt_flow_scale_factor)
         all_cur_pts, status, err = cv2.calcOpticalFlowPyrLK(self.prev_frame_small, self.frame_small,
                                                             scaled_prev_pts, None,
                                                             **self.opt_flow_params)
         status = self._get_status(status, err, self.max_error)
-        all_cur_pts = self._unscale_pts(all_cur_pts, self.opt_flow_scale_factor, status)
+        all_cur_pts = self._unscale_pts(
+            all_cur_pts, self.opt_flow_scale_factor, status)
 
         # save preprocessed frame buffers for next prediction
         self.prev_frame_gray, self.frame_gray = self.frame_gray, self.prev_frame_gray
@@ -218,7 +226,8 @@ class Flow:
         for begin, end, track in zip(target_begins, target_ends, tracks):
             prev_pts, matched_pts = self._get_good_match(all_prev_pts, all_cur_pts,
                                                          status, begin, end)
-            prev_pts, matched_pts = self._fg_filter(prev_pts, matched_pts, self.fg_mask, self.size)
+            prev_pts, matched_pts = self._fg_filter(
+                prev_pts, matched_pts, self.fg_mask, self.size)
             if len(matched_pts) < 3:
                 track.keypoints = np.empty((0, 2), np.float32)
                 continue

@@ -11,27 +11,19 @@
         "detector_frame_skip": 1,
         "class_ids": [0],
 
-        "yolo_detector_cfg": {
-            "model": "YOLOv4",
-            "conf_thresh": 0.25,
-            "nms_thresh": 0.5,
-            "max_area": 800000,
-            "min_aspect_ratio": 1.2
-        },
-
-        "feature_extractor_cfgs": [
+        "feature_extractor_cfgs": 
             {
-                "model": "OSNet025",
+                "model": "OSNetAin",
                 "batch_size": 16
             }
-        ],
+        ,
 
         "tracker_cfg": {
-            "max_age": 10,
+            "max_age": 6,
             "age_penalty": 2,
             "motion_weight": 0.2,
             "max_assoc_cost": 0.8,
-            "max_reid_cost": 0.8,
+            "max_reid_cost": 0.6,
             "iou_thresh": 0.4,
             "duplicate_thresh": 0.8,
             "occlusion_thresh": 0.7,
@@ -53,7 +45,6 @@
             },
 
             "flow_cfg": {
-                "bg_feat_scale_factor": [0.1, 0.1],
                 "opt_flow_scale_factor": [0.5, 0.5],
                 "feat_density": 0.005,
                 "feat_dist_factor": 0.06,
@@ -61,7 +52,6 @@
                 "ransac_conf": 0.99,
                 "max_error": 100,
                 "inlier_thresh": 4,
-                "bg_feat_thresh": 10,
                 "obj_feat_params": {
                     "maxCorners": 1000,
                     "qualityLevel": 0.06,
@@ -81,7 +71,6 @@
             "draw_covariance": false,
             "draw_klt": false,
             "draw_obj_flow": false,
-            "draw_bg_flow": false,
             "draw_trajectory": false
         }
     }

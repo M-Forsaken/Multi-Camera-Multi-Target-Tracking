@@ -85,9 +85,7 @@ class ReID:
             # engine = builder.build_cuda_engine(network)
             engine = builder.build_engine(network, config)
             if engine is None:
-                print('Failed to build engine')
-                return None
-
+                raise('Failed to build engine')
             print("Completed creating engine")
             with open(cls.ENGINE_PATH, 'wb') as engine_file:
                 engine_file.write(engine.serialize())
@@ -99,5 +97,12 @@ class OSNet025(ReID):
     MODEL_PATH = Path(cwd)/ 'models/osnet_x0_25_msmt17.onnx'
     INPUT_SHAPE = (3, 256, 128)
     OUTPUT_LAYOUT = 512
-    METRIC = 'euclidean' #euclidean/cosine
+    METRIC = 'cosine' #euclidean/cosine
 
+
+class OSNetAin(ReID):
+    ENGINE_PATH = Path(cwd) / 'models/osnet_ain_x1_0_msmt17.trt'
+    MODEL_PATH = Path(cwd) / 'models/osnet_ain_x1_0_msmt17.onnx'
+    INPUT_SHAPE = (3, 256, 128)
+    OUTPUT_LAYOUT = 512
+    METRIC = 'cosine'  # euclidean/cosine

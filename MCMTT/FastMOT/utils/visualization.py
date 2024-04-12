@@ -30,7 +30,7 @@ def draw_trajectory(frame, bboxes, trk_id):
     centers = tuple(map(lambda box: get_center(box), tlbrs[::4]))
     color = get_color(trk_id)
     pts = np.array(centers, dtype=np.int32)
-    cv2.polylines(frame, [pts], False, color, thickness=1)
+    cv2.polylines(frame, [pts], False, color, thickness=2)
 
 
 def draw_klt_bboxes(frame, klt_bboxes, color=(0, 0, 0)):
@@ -42,11 +42,6 @@ def draw_tiles(frame, tiles, scale_factor, color=(0, 0, 0)):
     for tile in tiles:
         tlbr = np.rint(tile * np.tile(scale_factor, 2))
         draw_bbox(frame, tlbr, color, 1)
-
-
-def draw_background_flow(frame, prev_bg_keypoints, bg_keypoints, color=(0, 0, 255)):
-    draw_feature_match(frame, prev_bg_keypoints, bg_keypoints, color)
-
 
 def get_color(idx, s=0.8, vmin=0.7):
     h = np.fmod(idx * GOLDEN_RATIO, 1.)
@@ -104,7 +99,6 @@ class Visualizer:
                  draw_covariance=False,
                  draw_klt=False,
                  draw_obj_flow=False,
-                 draw_bg_flow=False,
                  draw_trajectory=False):
         """Class for visualization.
 
@@ -130,10 +124,9 @@ class Visualizer:
         self.draw_covariance = draw_covariance
         self.draw_klt = draw_klt
         self.draw_obj_flow = draw_obj_flow
-        self.draw_bg_flow = draw_bg_flow
         self.draw_trajectory = draw_trajectory
 
-    def render(self, frame, tracks, detections, klt_bboxes, prev_bg_keypoints, bg_keypoints):
+    def render(self, frame, tracks, detections, klt_bboxes):
         """Render visualizations onto the frame."""
         draw_tracks(frame, tracks, show_flow=self.draw_obj_flow,
                     show_cov=self.draw_covariance,
@@ -142,5 +135,3 @@ class Visualizer:
             draw_detections(frame, detections, show_conf=self.draw_confidence)
         if self.draw_klt:
             draw_klt_bboxes(frame, klt_bboxes)
-        if self.draw_bg_flow:
-            draw_background_flow(frame, prev_bg_keypoints, bg_keypoints)

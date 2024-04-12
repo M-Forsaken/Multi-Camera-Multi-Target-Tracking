@@ -21,12 +21,12 @@ def draw_boxes(frame, object_list, camera_id=None):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, [255, 0, 0], 2)
     return frame
 def Detection(frame):
-    results = model(frame,task = "detect" ,verbose=False)
+    results = model(frame ,conf = confidence,iou = 0.5,verbose=False)
     for item in results:
         object_list = []
         for data in item.boxes.data.tolist():
             x1, y1, x2, y2, score, class_id = data
-            if names[class_id] == tag and score >= confidence:
+            if names[class_id] == tag:
                 object_list.append(
                     np.array(((x1, y1, x2, y2), (class_id), (score)), dtype=DET_DTYPE))
     return np.array(object_list, dtype=DET_DTYPE).view(np.recarray)

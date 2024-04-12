@@ -7,10 +7,10 @@ import numpy as np
 cwd = os.getcwd()
 
 # Model arguments
-model = YOLO(cwd + "/models/yolov8n.engine")
+model = YOLO(cwd + "/models/yolov8n.engine",task="detect")
 
 DET_DTYPE = np.dtype(
-    [('tlbr', int, 4),
+    [('tlbr', float, 4),
      ('label', int),
      ('conf', float)],
     align=True
