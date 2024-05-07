@@ -1,4 +1,0 @@
-Detection duplicates (fixed)
-Current Osnet model doesnt perform very well - find better model
-Multicam re-id (compare hist_track cluster with track cluster (Cdist), if distance is smaller than threshold, merge 2 id)
-(Get all tracks from MOT objects to a MulticamTracking Object)

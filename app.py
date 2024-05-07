@@ -19,48 +19,47 @@ cwd = os.getcwd()
 
 def main():
     # Camera Parameters
-    video_path = cwd + "/data/test_video.mp4"
-    video_path_ = cwd + "/data/test_video2.mp4"
-    cam_1_url = "http://192.168.1.18:2525/video"
-    cam_2_url = "http://192.168.0.109:4747/video"
-    cam_urls = [video_path]
-    cam_count = len(cam_urls)
+    cam_vid_1 = cwd + "/data/cam_4.mp4"
+    cam_vid_2 = cwd + "/data/cam_2.mp4"
+    cam_vid_3 = cwd + "/data/cam_3.mp4"
+    test_video = cwd + "/data/test_video.mp4"
+    cam_1_url = "http://192.168.0.110:4747/video"
+    cam_2_url = "http://192.168.0.121:4747/video"
+    cam_3_url = "http://192.168.0.103:4747/video"
+    cam_urls = [cam_vid_1]
 
     # Multiprocessing Parameters
     manager = multiprocessing.Manager()
     Flags = manager.dict(
         {
             "running": True,
-            "done"   : True,
         }
     )
-    Frame_dict = manager.dict()
+    Frame_list = manager.list([i for i in range(len(cam_urls))])
     Hist_Tracks = manager.dict()
     Global_ID_Count = manager.Value(c_short, 1)
 
     Processes = []
     for count, url in enumerate(cam_urls):
         process = multiprocessing.Process(target=Cam_process, args=(
-            count, url, Hist_Tracks, Global_ID_Count, Frame_dict, Flags))
+            count, url, Hist_Tracks, Global_ID_Count, Frame_list, Flags))
         Processes.append(process)
+        Frame_list[count] = None
     for process in Processes:
         process.start()
 
     while Flags["running"]:
         clock.tick(60)
-        while len(Frame_dict) != cam_count:
+        while len([x for x in Frame_list if x is not None]) != len(cam_urls):
             pass
-        Flags["done"] = False
         frames = []
-        keys = Frame_dict.keys()
-        keys.sort()
-        for key in keys:
-            frames.append(Frame_dict.pop(key))
+        for count, frame in enumerate(Frame_list):
+            frames.append(frame)
+            Frame_list[count] = None
         frame = cv2.hconcat(frames)
         cv2.putText(frame, f"FPS: {int(clock.get_fps())}",
                     (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2,cv2.LINE_AA)
         cv2.imshow('CCTV', frame)
-        Flags["done"] = True
         if cv2.waitKey(1) & 0xFF == 27:
             Flags["running"] = False
             break
@@ -71,7 +70,7 @@ def main():
     cv2.destroyAllWindows()
 
 
-def Cam_process(cam_id,cam_url, hist_tracks, Global_ID_Count,Frame_dict, Flags):
+def Cam_process(cam_id,cam_url, hist_tracks, Global_ID_Count,Frame_list, Flags):
     # load config file
     file = open(cwd + "\MCMTT\cfg\mot.json")
     config = json.load(file, cls=ConfigDecoder,
@@ -87,9 +86,9 @@ def Cam_process(cam_id,cam_url, hist_tracks, Global_ID_Count,Frame_dict, Flags):
             if frame is not None:
                 frame = cv2.resize(frame, config.resize_to)
                 mot.step(frame)
-                while not Flags["done"]:
+                while Frame_list[cam_id] is not None and Flags["running"]:
                     pass
-                Frame_dict[cam_id] = frame
+                Frame_list[cam_id] = frame
             else:
                 Flags["running"] = False
                 break 

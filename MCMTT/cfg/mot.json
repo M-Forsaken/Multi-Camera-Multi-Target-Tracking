@@ -1,5 +1,5 @@
 {   
-    "resize_to": [640, 400],
+    "resize_to": [600, 375],
 
     "stream_cfg": {
         "resolution": [1920, 1080],
@@ -8,12 +8,12 @@
     },
 
     "mot_cfg": {
-        "detector_frame_skip": 4,
+        "detector_frame_skip": 3,
         "class_ids": [0],
 
         "feature_extractor_cfgs": 
             {
-                "model": "OSNetAin",
+                "model": "OSNet025",
                 "batch_size": 16
             }
         ,
@@ -22,12 +22,14 @@
             "max_age": 6,
             "age_penalty": 2,
             "motion_weight": 0.2,
-            "max_assoc_cost": 0.8,
-            "max_reid_cost": 0.45,
+            "assoc_thresh": 0.2,
+            "reid_thresh": 0.4,
             "iou_thresh": 0.4,
             "duplicate_thresh": 0.8,
             "occlusion_thresh": 0.7,
-            "conf_thresh": 0.5,
+            "conf_thresh": 0.3,
+            "remove_thresh": 0.2,
+            "new_thresh": 0.5,
             "confirm_hits": 1,
             "history_size": 50,
 

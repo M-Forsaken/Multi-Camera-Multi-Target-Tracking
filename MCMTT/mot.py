@@ -3,11 +3,12 @@ import numpy as np
 import numba as nb
 import cv2
 
-from .detection import Detection
+from .detector import Detection
 from .feature_extractor import FeatureExtractor
 from .tracker import MultiTracker
 from .utils.visualization import Visualizer
 from .utils.numba_func import bisect_right
+
 
 class MOT:
     def __init__(self, size, hist_tracks, ID_count,
@@ -65,7 +66,8 @@ class MOT:
 
         print('Loading feature extractor models...')
         self.extractor = FeatureExtractor(**vars(feature_extractor_cfgs))
-        self.tracker = MultiTracker(self.size, hist_tracks, self.ID_count, self.extractor.metric, **vars(tracker_cfg))
+        self.tracker = MultiTracker(
+            self.size, hist_tracks, self.ID_count, self.extractor.metric, **vars(tracker_cfg))
         self.visualizer = Visualizer(**vars(visualizer_cfg))
         self.frame_count = 0
 
@@ -107,7 +109,37 @@ class MOT:
             self.tracker.compute_flow(frame)
             detections = Detection(frame)
             cls_bboxes = self._split_bboxes_by_cls(detections.tlbr, detections.label,
-                                                        self.class_ids)
+                                                   self.class_ids)
+
+            for bboxes in cls_bboxes:
+                self.extractor.extract_async(frame, bboxes)
+            self.tracker.apply_kalman()
+            embeddings = self.extractor.postprocess()
+            self.tracker.update(self.frame_count, detections, embeddings)
+        else:
+            self.tracker.track(frame)
+        if self.draw:
+            self._draw(frame, detections)
+        self.frame_count += 1
+
+    def step_det(self, frame, det):
+        """Runs multiple object tracker on the next frame.
+        Parameters
+        ----------
+        frame : ndarray
+            The next frame.
+        """
+
+        detections = []
+        cls_bboxes = []
+        if self.frame_count == 0:
+            detections = det
+            self.tracker.init(frame, detections)
+        elif self.frame_count % self.detector_frame_skip == 0:
+            self.tracker.compute_flow(frame)
+            detections = det
+            cls_bboxes = self._split_bboxes_by_cls(detections.tlbr, detections.label,
+                                                   self.class_ids)
 
             for bboxes in cls_bboxes:
                 self.extractor.extract_async(frame, bboxes)
@@ -133,6 +165,9 @@ class MOT:
 
     def _draw(self, frame, detections):
         visible_tracks = list(self.visible_tracks())
-        self.visualizer.render(frame, visible_tracks, detections, self.tracker.klt_bboxes.values())
+        self.visualizer.render(frame, visible_tracks,
+                               detections, self.tracker.klt_bboxes.values())
         # cv2.putText(frame, f'visible: {len(visible_tracks)}', (30, 30),
         #             cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+    
+

@@ -100,9 +100,9 @@ class OSNet025(ReID):
     METRIC = 'cosine' #euclidean/cosine
 
 
-class OSNet10(ReID):
-    ENGINE_PATH = Path(cwd) / 'models/osnet_x1_0_market.trt'
-    MODEL_PATH = Path(cwd) / 'models/osnet_x1_0_market.onnx'
+class OSNetAinMix(ReID):
+    ENGINE_PATH = Path(cwd) / 'models/osnet_ain_ms_d_c.trt'
+    MODEL_PATH = Path(cwd) / 'models/osnet_ain_ms_d_c.onnx'
     INPUT_SHAPE = (3, 256, 128)
     OUTPUT_LAYOUT = 512
     METRIC = 'euclidean'  # euclidean/cosine
