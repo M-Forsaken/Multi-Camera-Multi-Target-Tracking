@@ -1,22 +1,23 @@
 import torch
-import torchvision
 import numpy as np
-import cv2
-import torch.nn as nn
 import os
 from ultralytics import YOLO
+import sys
+sys.path.append("./MCMTT/model")
 
-from .model_source.yolox.data.data_augment import preproc
-from .model_source.yolox.exp import get_exp
-from .model_source.yolox.utils import fuse_model, postprocess
+from yolox.data.data_augment import preproc
+from yolox.exp import get_exp
+from yolox.utils import fuse_model, postprocess
+
 
 cwd = os.getcwd()
-use_yolo = False
-# Model arguments
-# model = YOLO(cwd + "/models/yolov8n.engine", task="detect")  # for use
-# model = YOLO(cwd + "/models/finetuned.pt", task="detect") # for evaluation
-exp_file = cwd + "/MCMTT/model_source/exps/yolox_s_mix_det.py"
+use_yolox = False
+loaded = False
+model = None
+exp_file = cwd + "/MCMTT/model/exps/yolox_s_mix_det.py"
 model_name = "bytetrack_s_mot17"
+model_file = cwd + "/models/yolov8n.engine"
+
 
 DET_DTYPE = np.dtype(
     [('tlbr', float, 4),
@@ -35,7 +36,6 @@ class Predictor(object):
         device=torch.device("cpu"),
     ):
         self.model = model
-        self.decoder = None
         self.num_classes = exp.num_classes
         self.confthre = param["conf"]
         self.nmsthre = param["nms"]
@@ -47,28 +47,24 @@ class Predictor(object):
     def inference(self, img):
         img, _ = preproc(img, self.test_size, self.rgb_means, self.std)
         img = torch.from_numpy(img).unsqueeze(0).float().to(self.device)
-
+        
         with torch.no_grad():
             outputs = self.model(img)
-            if self.decoder is not None:
-                outputs = self.decoder(outputs, dtype=outputs.type())
             outputs = postprocess(
                 outputs, self.num_classes, self.confthre, self.nmsthre)
         return outputs[0], self.test_size
 
-
 def load_detector():
-    
     exp = get_exp(exp_file, "")
     device = torch.device("cuda")
     model = exp.get_model().to(device)
     model.eval()
 
-    model_path = cwd + "/models/" + model_name + ".pth.tar"
+    torch_path = cwd + "/models/" + model_name + ".pth.tar"
 
-    checkpoint = torch.load(model_path, map_location="cpu")
+    assert os.path.exists(torch_path),"Model file does not exist."
+    checkpoint = torch.load(torch_path, map_location="cpu")
     model.load_state_dict(checkpoint["model"])
-
     model = fuse_model(model)
     param = {
         "conf": 0.2,
@@ -78,14 +74,23 @@ def load_detector():
     return predictor
 
 
-model = load_detector()
+
 def Detection(frame):
-    if use_yolo:
-        return Det_YOLOv8(frame)
+    # Model arguments
+    global model, loaded
+    if not use_yolox:
+        if not loaded:
+            loaded = True
+            model = YOLO(model_file,
+                         task="detect")  # for use
+        return Det_YOLO(frame)
+    if not loaded:
+        loaded = True
+        model = load_detector()
     return Det_YOLOX(frame)
 
 
-def Det_YOLOv8(frame):
+def Det_YOLO(frame):
     results = model(frame, conf=0.1, verbose=False)
     for item in results:
         object_list = []

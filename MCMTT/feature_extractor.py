@@ -3,7 +3,7 @@ import numpy as np
 import numba as nb
 import cv2
 
-from .model_source import reid
+from .model import reid
 from .utils.inference import TRTInference
 from .utils.rect import multi_crop
 

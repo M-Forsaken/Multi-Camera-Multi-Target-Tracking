@@ -2,12 +2,14 @@ from types import SimpleNamespace
 import itertools
 import numpy as np
 
+
 from .track import Track
 from .flow import Flow
 from .kalman_filter import MeasType, KalmanFilter
-from .utils.distance import Metric, iou_dist
+from .utils.distance import Metric, iou_dist, cdist
 from .utils.matching import linear_assignment, greedy_match, fuse_motion, gate_cost
 from .utils.rect import as_tlbr, to_tlbr, ios, find_occluded
+from .utils.numba_func import apply_along_axis
 
 
 class MultiTracker:
@@ -66,9 +68,6 @@ class MultiTracker:
         """
         self.size = size
         self.ID_count = ID_count
-        # self.track_high_thresh = args.track_high_thresh
-        # self.track_low_thresh = args.track_low_thresh
-        # self.new_track_thresh = args.new_track_thresh
         self.metric = Metric[metric.upper()]
         assert max_age >= 1
         self.max_age = max_age
@@ -331,7 +330,7 @@ class MultiTracker:
             else:
                 unconfirmed.append(trk_id)
         return confirmed_by_depth, unconfirmed
-    
+
     def _matching_cost(self, trk_ids, detections, embeddings):
         n_trk, n_det = len(trk_ids), len(detections)
         if n_trk == 0 or n_det == 0:
@@ -341,7 +340,9 @@ class MultiTracker:
         cost = np.zeros((n_trk, n_det), dtype=np.float32)
         for i, trk_id in enumerate(trk_ids):
             track = self.tracks[trk_id]
-            cost[i:,] = track.clust_feat.embedding_distance(embeddings)
+            all_features = track.get_all_features()
+            cost[i:,] = apply_along_axis(np.min, cdist(
+                all_features, embeddings, self.metric), axis=0) if all_features.ndim == 2 else 1e5
 
         # fuse motion information
         for row, trk_id in enumerate(trk_ids):
@@ -365,7 +366,9 @@ class MultiTracker:
         cost = np.zeros((n_hist, n_det), dtype=np.float32)
         for i, trk_id in enumerate(hist_ids):
             track = self.hist_tracks[trk_id] if trk_id in self.hist_tracks.keys() else None
-            cost[i:,] = track.clust_feat.embedding_distance(embeddings) if track is not None else 1e5
+            all_features = track.get_all_features() if track is not None else None
+            cost[i:,] = apply_along_axis(np.min, cdist(
+                all_features, embeddings, self.metric), axis=0) if (all_features is not None) and (all_features.ndim == 2) else 1e5
 
         t_labels = np.fromiter(
             (t.label for t in self.hist_tracks.values()), int, len(self.hist_tracks.keys()))
@@ -389,7 +392,7 @@ class MultiTracker:
         IoU_matrix = self._iou_cost(trk_ids, detections)
         if IoU_matrix.size == 0 or embeddings.size == 0:
             return IoU_matrix
-        
+
         n_trk, n_det = len(trk_ids), len(detections)
         if n_trk == 0 or n_det == 0:
             return np.empty((n_trk, n_det))
@@ -398,12 +401,14 @@ class MultiTracker:
         cost = np.zeros((n_trk, n_det), dtype=np.float32)
         for i, trk_id in enumerate(trk_ids):
             track = self.tracks[trk_id]
-            cost[i:,] = track.clust_feat.embedding_distance(embeddings)
+            all_features = track.get_all_features()
+            cost[i:,] = apply_along_axis(np.min, cdist(
+                all_features, embeddings, self.metric), axis=0) if all_features.ndim == 2 else 1e5
 
         index = cost > (1 - self.reid_thresh)
         IoU_matrix[index] = 1e5
         return IoU_matrix
-    
+
     def _rectify_matches(self, matches, u_trk_ids, detections):
         matches, u_trk_ids = set(matches), set(u_trk_ids)
         inactive_matches = [

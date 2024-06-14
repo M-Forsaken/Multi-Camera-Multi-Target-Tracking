@@ -64,7 +64,6 @@ class MOT:
         if visualizer_cfg is None:
             visualizer_cfg = SimpleNamespace()
 
-        print('Loading feature extractor models...')
         self.extractor = FeatureExtractor(**vars(feature_extractor_cfgs))
         self.tracker = MultiTracker(
             self.size, hist_tracks, self.ID_count, self.extractor.metric, **vars(tracker_cfg))

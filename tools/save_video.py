@@ -1,5 +1,5 @@
 import cv2
-from ctypes import windll, c_short
+from ctypes import windll
 windll.shcore.SetProcessDpiAwareness(1)
 
 

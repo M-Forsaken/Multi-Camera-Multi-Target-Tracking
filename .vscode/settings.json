@@ -1,0 +1,6 @@
+{
+    "python.analysis.extraPaths": [
+        "./MCMTT/model"
+    ],
+    "git.ignoreLimitWarning": true
+}

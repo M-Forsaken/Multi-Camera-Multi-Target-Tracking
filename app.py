@@ -15,21 +15,24 @@ pygame.init()
 
 clock = pygame.time.Clock()
 cwd = os.getcwd()
-
+write = True
 
 def main():
     # Camera Parameters
-    cam_vid_1 = cwd + "/data/cam_4.mp4"
+    cam_vid_1 = cwd + "/data/cam_1.mp4"
     cam_vid_2 = cwd + "/data/cam_2.mp4"
     cam_vid_3 = cwd + "/data/cam_3.mp4"
-    test_video = cwd + "/data/test_video.mp4"
-    cam_1_url = "http://192.168.0.110:4747/video"
-    cam_2_url = "http://192.168.0.121:4747/video"
-    cam_3_url = "http://192.168.0.103:4747/video"
-    cam_urls = [cam_vid_1]
+    test_video = cwd + "/data/Test.mp4"
+    # cam_1_url = "http://192.168.9.193:4747/video"
+    # cam_2_url = "http://192.168.0.121:4747/video"
+    # cam_3_url = "http://192.168.0.103:4747/video"
+    cam_urls = [test_video]
+    if write:
+        result = cv2.VideoWriter(
+            'demo.mp4', cv2.VideoWriter_fourcc(*'mp4v'), 30, (600 * len(cam_urls), 375))
 
     # Multiprocessing Parameters
-    manager = multiprocessing.Manager()
+    manager = multiprocessing.Manager()  
     Flags = manager.dict(
         {
             "running": True,
@@ -60,14 +63,17 @@ def main():
         cv2.putText(frame, f"FPS: {int(clock.get_fps())}",
                     (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2,cv2.LINE_AA)
         cv2.imshow('CCTV', frame)
+        if write:
+            result.write(frame)
         if cv2.waitKey(1) & 0xFF == 27:
             Flags["running"] = False
             break
-
     for process in Processes:
         process.join()
     # clean up
     cv2.destroyAllWindows()
+    if write:
+        result.release()
 
 
 def Cam_process(cam_id,cam_url, hist_tracks, Global_ID_Count,Frame_list, Flags):

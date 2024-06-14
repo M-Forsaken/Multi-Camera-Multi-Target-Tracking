@@ -2,10 +2,10 @@ from collections import deque
 import numpy as np
 import numba as nb
 
-from .model_source.label import get_label_name
-from .utils.distance import cdist, cosine
+from .model.label import get_label_name
+from .utils.distance import cosine
 from .utils.rect import get_center
-from .utils.numba_func import apply_along_axis, normalize_vec
+from .utils.numba_func import normalize_vec
 
 class ClusterFeature:
     def __init__(self, num_clusters, metric):
@@ -36,11 +36,8 @@ class ClusterFeature:
             self._seq_kmeans(self.clusters, self.cluster_sizes,
                              embedding, nearest_idx)
 
-    def embedding_distance(self, embeddings):
-        if self.clusters is None:
-            return np.ones(len(embeddings))
-        clusters = normalize_vec(self.clusters[:self._next_idx])
-        return apply_along_axis(np.min, cdist(clusters, embeddings, self.metric), axis=0)
+    def get_clusters_matrix(self):
+        return normalize_vec(self.clusters[:self._next_idx])
 
     def merge(self, other):
         if other.clusters is not None:
@@ -58,30 +55,8 @@ class ClusterFeature:
         div_size = 1. / cluster_sizes[idx]
         clusters[idx] += (embedding - clusters[idx]) * div_size
 
-
-class SmoothFeature:
-    def __init__(self, learning_rate):
-        self.lr = learning_rate
-        self.smooth = None
-
-    def __call__(self):
-        return self.smooth
-
-    def update(self, embedding):
-        if self.smooth is None:
-            self.smooth = embedding.copy()
-        else:
-            self._rolling(self.smooth, embedding, self.lr)
-
-    @staticmethod
-    @nb.njit(fastmath=True, cache=True)
-    def _rolling(smooth, embedding, lr):
-        smooth[:] = (1. - lr) * smooth + lr * embedding
-        norm_factor = 1. / np.linalg.norm(smooth)
-        smooth *= norm_factor
-
 class Track:
-    def __init__(self, ID, frame_id, tlbr, estimator_state, label, metric, confirm_hits=1, buffer_size=30, num_clusters=4):
+    def __init__(self, ID, frame_id, tlbr, estimator_state, label, metric, confirm_hits=1, buffer_size=30,budget = 5, num_clusters=4):
         self.trk_id = ID
         self.start_time = frame_id
         self.end_time = frame_id
@@ -92,7 +67,7 @@ class Track:
 
         self.age = 0
         self.hits = 0
-        self.is_activated = True
+        self.features = deque([], maxlen=budget)
         self.clust_feat = ClusterFeature(num_clusters, metric)
 
         self.inlier_ratio = 1.
@@ -135,6 +110,7 @@ class Track:
         self.estimator_state = estimator_state
         if embedding is not None:
             if is_valid:
+                self.features.append(embedding)
                 self.clust_feat.update(embedding)
         self.age = 0
         self.hits += 1
@@ -145,6 +121,7 @@ class Track:
         self.bboxes.append(tlbr)
         self.estimator_state = state
         if embedding is not None:
+            self.features.append(embedding)
             self.clust_feat.update(embedding)
         self.age = 0
         self.keypoints = np.empty((0, 2), np.float32)
@@ -163,4 +140,20 @@ class Track:
         self.keypoints = other.keypoints
         self.prev_keypoints = other.prev_keypoints
         if other.clust_feat is not None:
+            self.features.extend(other.features)
             self.clust_feat.merge(other.clust_feat)
+
+    def get_all_features(self):
+        all_features = []
+        if self.clust_feat._next_idx >= 1:
+            recent_features = [feature for feature in self.features]
+            all_features = all_features + recent_features
+            cluster_features = self.clust_feat.get_clusters_matrix()
+            for i in range(cluster_features.shape[0]):
+                all_features.append(cluster_features[i])
+        else:
+            recent_features = [feature for feature in self.features]
+            all_features = all_features + recent_features
+
+        return np.array(all_features)
+
