@@ -11,7 +11,17 @@ The system makes use of:
 ```python
 pip install -r requirements.txt
 ```
+## How to Run
+```bash
+python app.py
+```
 
-The code is based on [ByteTrack](https://github.com/ifzhang/ByteTrack) and [FastMOT](https://github.com/GeekAlexis/FastMOT)
 
-Visit their installation guides for more setup options.
+## Acknowledgement
+
+This project benefits greatly from the works of
+[ByteTrack](https://github.com/ifzhang/ByteTrack), 
+[FastReID](https://github.com/JDAI-CV/fast-reid),
+[YOLOX](https://github.com/Megvii-BaseDetection/YOLOX) and
+[FastMOT](https://github.com/GeekAlexis/FastMOT).
+Thanks for their excellent work!
