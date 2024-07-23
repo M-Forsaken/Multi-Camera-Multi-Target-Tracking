@@ -19,14 +19,10 @@ write = True
 
 def main():
     # Camera Parameters
-    cam_vid_1 = cwd + "/data/cam_1.mp4"
-    cam_vid_2 = cwd + "/data/cam_2.mp4"
-    cam_vid_3 = cwd + "/data/cam_3.mp4"
-    test_video = cwd + "/data/Test.mp4"
-    # cam_1_url = "http://192.168.9.193:4747/video"
-    # cam_2_url = "http://192.168.0.121:4747/video"
-    # cam_3_url = "http://192.168.0.103:4747/video"
-    cam_urls = [test_video]
+    cam_1_url = "http://192.168.9.193:4747/video"
+    cam_2_url = "http://192.168.0.121:4747/video"
+    cam_3_url = "http://192.168.0.103:4747/video"
+    cam_urls = [cam_1_url]
     if write:
         result = cv2.VideoWriter(
             'demo.mp4', cv2.VideoWriter_fourcc(*'mp4v'), 30, (600 * len(cam_urls), 375))

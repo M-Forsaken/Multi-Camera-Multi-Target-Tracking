@@ -1,7 +1,6 @@
 from types import SimpleNamespace
 import numpy as np
 import numba as nb
-import cv2
 
 from .detector import Detection
 from .feature_extractor import FeatureExtractor
