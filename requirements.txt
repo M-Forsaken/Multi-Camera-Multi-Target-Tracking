@@ -18,5 +18,5 @@ filterpy
 h5py
 scipy >= 1.5
 numba == 0.48
-tensorflow < 2.0
+tensorflow >= 2.4.0
 cupy == 9.2
